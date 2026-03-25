@@ -5,6 +5,12 @@ export default async function handler(req, res) {
 
   const { system, messages } = req.body;
 
+  // Claude ne veut que les rôles 'user' et 'assistant' dans le tableau messages
+  const cleanMessages = messages.map(m => ({
+    role: m.role === 'assistant' ? 'assistant' : 'user',
+    content: m.content
+  }));
+
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -14,23 +20,26 @@ export default async function handler(req, res) {
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-3-5-sonnet-20240620', // Le modèle le plus puissant actuellement
-        max_tokens: 2000,
-        system: system, // Claude prend le system prompt à part
-        messages: messages
+        model: 'claude-3-5-sonnet-20240620',
+        max_tokens: 4000,
+        system: system, // Le prompt Square Motion va ici
+        messages: cleanMessages
       }),
     });
 
     const data = await response.json();
+
+    if (data.error) {
+      console.error('Erreur Anthropic:', data.error);
+      return res.status(500).json({ error: data.error.message });
+    }
     
-    // On adapte la réponse pour ton App.jsx
     const aiText = data.content[0].text;
     res.status(200).json({ 
       content: [{ type: 'text', text: aiText }] 
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erreur Anthropic' });
+    res.status(500).json({ error: 'Erreur technique' });
   }
 }

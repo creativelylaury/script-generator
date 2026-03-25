@@ -1,16 +1,5 @@
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Méthode non autorisée' });
-  }
-
   const { system, messages } = req.body;
-
-  const cleanMessages = (messages || [])
-    .filter(m => m.role === 'user' || m.role === 'assistant')
-    .map(m => ({
-      role: m.role,
-      content: m.content
-    }));
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -22,24 +11,24 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: 'claude-3-haiku-20240307',
-        max_tokens: 4000,
+        max_tokens: 1024,
         system: system || '',
-        messages: cleanMessages
+        messages: messages.map(m => ({ role: m.role, content: m.content }))
       }),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      return res.status(response.status).json({ error: data.error?.message || 'Erreur API' });
+      // ICI : On renvoie l'erreur RÉELLE pour qu'on puisse la lire
+      return res.status(200).json({ 
+        content: [{ type: 'text', text: "🚨 ERREUR CLAUDE : " + JSON.stringify(data.error) }] 
+      });
     }
     
-    const aiText = data.content[0].text;
-    res.status(200).json({ 
-      content: [{ type: 'text', text: aiText }] 
-    });
+    res.status(200).json({ content: [{ type: 'text', text: data.content[0].text }] });
 
   } catch (error) {
-    res.status(500).json({ error: 'Erreur technique interne' });
+    res.status(200).json({ content: [{ type: 'text', text: "🚨 ERREUR SERVEUR : " + error.message }] });
   }
 }

@@ -236,8 +236,28 @@ const QUICK_ACTIONS = {
 };
 
 export default function App() {
+  // Check if config is in URL (student link)
+  const [isStudentMode] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const encoded = params.get("config");
+      if (encoded) return true;
+    } catch {}
+    return false;
+  });
+
   const [config, setConfig] = useState(() => {
     try {
+      // Priority 1: URL parameter (student link)
+      const params = new URLSearchParams(window.location.search);
+      const encoded = params.get("config");
+      if (encoded) {
+        const decoded = JSON.parse(atob(decodeURIComponent(encoded)));
+        // Save to localStorage so it persists on refresh
+        localStorage.setItem("sm_student_config_" + decoded.studentName, JSON.stringify(decoded));
+        return decoded;
+      }
+      // Priority 2: localStorage
       const saved = localStorage.getItem("sm_student_config");
       return saved ? JSON.parse(saved) : DEFAULT_CONFIG;
     } catch { return DEFAULT_CONFIG; }
@@ -251,6 +271,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [adminKey, setAdminKey] = useState("");
   const [isUnlocked, setIsUnlocked] = useState(false);
+  const [generatedLink, setGeneratedLink] = useState("");
+  const [linkCopied, setLinkCopied] = useState(false);
   const chatRef = useRef(null);
   const ADMIN_CODE = "squaremotion2024";
 
@@ -293,8 +315,20 @@ export default function App() {
   function saveAdminConfig() {
     setConfig(adminConfig);
     try { localStorage.setItem("sm_student_config", JSON.stringify(adminConfig)); } catch {}
-    setShowAdmin(false);
+    // Generate shareable student link
+    const encoded = encodeURIComponent(btoa(JSON.stringify(adminConfig)));
+    const baseUrl = window.location.origin + window.location.pathname;
+    const link = baseUrl + "?config=" + encoded;
+    setGeneratedLink(link);
+    setLinkCopied(false);
     setMessages([{ role: "assistant", content: `Profil mis à jour ! ✅\n\nConfiguré pour ${adminConfig.studentName} — niche "${adminConfig.niche}".\nModules 4-5-6 intégrés.\n\nComment je peux t'aider ?` }]);
+  }
+
+  function copyLink() {
+    navigator.clipboard.writeText(generatedLink).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 3000);
+    });
   }
 
   function handleAdminAccess() { if (adminKey === ADMIN_CODE) { setIsUnlocked(true); setAdminConfig(config); } }
@@ -371,7 +405,7 @@ export default function App() {
         </div>
         <div style={{ textAlign: "center", padding: "20px 0 40px", fontSize: 11, color: TEXT_DIM }}>Powered by Square Motion × Creative Academy</div>
       </div>
-      <div style={styles.adminGear} onClick={() => setShowAdmin(true)} onMouseOver={e => { e.currentTarget.style.borderColor = PURPLE; }} onMouseOut={e => { e.currentTarget.style.borderColor = BORDER; }}>⚙️</div>
+      {!isStudentMode && <div style={styles.adminGear} onClick={() => setShowAdmin(true)} onMouseOver={e => { e.currentTarget.style.borderColor = PURPLE; }} onMouseOut={e => { e.currentTarget.style.borderColor = BORDER; }}>⚙️</div>}
       {showAdmin && (
         <div style={styles.adminOverlay} onClick={e => { if (e.target === e.currentTarget) setShowAdmin(false); }}>
           <div style={styles.adminPanel}>
@@ -406,7 +440,19 @@ export default function App() {
                 <textarea style={{ ...styles.adminTextarea, minHeight: 80 }} value={adminConfig.pdfNotes} onChange={e => setAdminConfig(p => ({ ...p, pdfNotes: e.target.value }))} placeholder="Contenu pertinent des PDFs..." />
                 <label style={styles.label}>Contexte additionnel</label>
                 <textarea style={{ ...styles.adminTextarea, minHeight: 70 }} value={adminConfig.additionalContext} onChange={e => setAdminConfig(p => ({ ...p, additionalContext: e.target.value }))} placeholder="Style, forces, axes d'amélioration..." />
-                <button style={styles.saveBtn} onClick={saveAdminConfig}>💾 Sauvegarder & Activer le profil</button>
+                <button style={styles.saveBtn} onClick={saveAdminConfig}>💾 Sauvegarder & Générer le lien élève</button>
+                {generatedLink && (
+                  <div style={{ marginTop: 20, padding: 16, background: BG_DARK, borderRadius: 12, border: `1px solid ${PURPLE}` }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: PURPLE_LIGHT, marginBottom: 8 }}>🔗 Lien personnalisé pour {adminConfig.studentName} :</div>
+                    <div style={{ fontSize: 11, color: TEXT_MUTED, wordBreak: "break-all", marginBottom: 12, lineHeight: 1.5, maxHeight: 60, overflow: "hidden" }}>{generatedLink.substring(0, 120)}...</div>
+                    <button onClick={copyLink} style={{ ...styles.saveBtn, marginTop: 0, background: linkCopied ? "#2D8B4E" : `linear-gradient(135deg, ${PURPLE}, ${PURPLE_DARK})` }}>
+                      {linkCopied ? "✅ Lien copié !" : "📋 Copier le lien"}
+                    </button>
+                    <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 10, lineHeight: 1.5 }}>
+                      Envoie ce lien à {adminConfig.studentName}. Le profil sera pré-chargé automatiquement. L'élève ne verra pas le panneau admin.
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

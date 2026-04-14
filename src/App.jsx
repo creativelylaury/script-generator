@@ -252,7 +252,7 @@ export default function App() {
       const params = new URLSearchParams(window.location.search);
       const encoded = params.get("config");
       if (encoded) {
-        const decoded = JSON.parse(atob(decodeURIComponent(encoded)));
+        const decoded = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(encoded)))));
         // Save to localStorage so it persists on refresh
         localStorage.setItem("sm_student_config_" + decoded.studentName, JSON.stringify(decoded));
         return decoded;
@@ -316,7 +316,7 @@ export default function App() {
     setConfig(adminConfig);
     try { localStorage.setItem("sm_student_config", JSON.stringify(adminConfig)); } catch {}
     // Generate shareable student link
-    const encoded = encodeURIComponent(btoa(JSON.stringify(adminConfig)));
+    const encoded = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(adminConfig)))));
     const baseUrl = window.location.origin + window.location.pathname;
     const link = baseUrl + "?config=" + encoded;
     setGeneratedLink(link);

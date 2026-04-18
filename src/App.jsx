@@ -236,33 +236,19 @@ const QUICK_ACTIONS = {
 };
 
 export default function App() {
-  // Check for student hash in URL
-  const [isStudentMode] = useState(() => window.location.hash.length > 1);
-
-  const [config, setConfig] = useState(() => {
+  // Check if student ID is in URL (e.g. ?s=aninia)
+  const studentId = (() => {
     try {
-      // Priority 1: Hash fragment (student link) - not truncated by browsers
-      const hash = window.location.hash.substring(1);
-      if (hash) {
-        const decoded = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(hash)))));
-        // Cache in localStorage for this student so they don't need the full link again
-        localStorage.setItem("sm_student_" + decoded.studentName.toLowerCase().replace(/\s/g, ""), JSON.stringify(decoded));
-        return decoded;
-      }
-      // Priority 2: Check if there's a student param for cached profiles
-      const params = new URLSearchParams(window.location.search);
-      const sid = params.get("s");
-      if (sid) {
-        const cached = localStorage.getItem("sm_student_" + sid);
-        if (cached) return JSON.parse(cached);
-      }
-      // Priority 3: Admin localStorage
-      const saved = localStorage.getItem("sm_admin_config");
-      return saved ? JSON.parse(saved) : DEFAULT_CONFIG;
-    } catch { return DEFAULT_CONFIG; }
-  });
+      return new URLSearchParams(window.location.search).get("s");
+    } catch { return null; }
+  })();
+
+  const [isStudentMode] = useState(!!studentId);
+  const [config, setConfig] = useState(DEFAULT_CONFIG);
+  const [configLoaded, setConfigLoaded] = useState(!studentId);
+  const [configError, setConfigError] = useState("");
   const [showAdmin, setShowAdmin] = useState(false);
-  const [adminConfig, setAdminConfig] = useState(config);
+  const [adminConfig, setAdminConfig] = useState(DEFAULT_CONFIG);
   const [activeTab, setActiveTab] = useState("script");
   const [activeFunnel, setActiveFunnel] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -275,13 +261,45 @@ export default function App() {
   const chatRef = useRef(null);
   const ADMIN_CODE = "squaremotion2024";
 
+  // Load admin config from localStorage (for admin mode only)
+  useEffect(() => {
+    if (!studentId) {
+      try {
+        const saved = localStorage.getItem("sm_admin_config");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setConfig(parsed);
+          setAdminConfig(parsed);
+        }
+      } catch {}
+    }
+  }, []);
+
+  // Load student config from server
+  useEffect(() => {
+    if (!studentId) return;
+    fetch("/api/student?id=" + encodeURIComponent(studentId))
+      .then(r => r.json())
+      .then(data => {
+        if (data.config) {
+          setConfig(data.config);
+          setConfigLoaded(true);
+        } else {
+          setConfigError("Profil non trouvé. Contacte ta coach.");
+        }
+      })
+      .catch(() => {
+        setConfigError("Erreur de chargement. Réessaie dans quelques secondes.");
+      });
+  }, [studentId]);
+
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [messages, loading]);
 
   useEffect(() => {
-    if (config.studentName !== DEFAULT_CONFIG.studentName) {
+    if (configLoaded && config.studentName !== DEFAULT_CONFIG.studentName) {
       setMessages([{ role: "assistant", content: `Hey ${config.studentName} ! 👋\n\nJe suis ton assistant d'écriture de scripts, personnalisé pour toi et ta niche "${config.niche}".\n\nJe maîtrise toute la méthode Square Motion (Modules 4, 5 et 6) : psychologie de l'attention, structure H.T.V.C, storytelling, piliers éditoriaux, soft selling, et recyclage de contenu.\n\nTu peux me demander :\n• Des idées TOFU / MOFU / BOFU\n• Des scripts complets (Hook → Tension → Valeur → CTA)\n• D'analyser et améliorer tes scripts\n• Des conseils de storytelling, format et recyclage\n\nLet's go 🚀` }]);
     }
-  }, [config.studentName, config.niche]);
+  }, [configLoaded, config.studentName, config.niche]);
 
   async function sendMessage(text) {
     if (!text.trim() || loading) return;
@@ -314,23 +332,16 @@ export default function App() {
   function saveAdminConfig() {
     setConfig(adminConfig);
     try { localStorage.setItem("sm_admin_config", JSON.stringify(adminConfig)); } catch {}
-    // Generate shareable student link using hash fragment (never truncated by browsers/apps)
-    const minConfig = {
-      studentName: adminConfig.studentName,
-      niche: adminConfig.niche,
-      instagramHandle: adminConfig.instagramHandle,
-      objective: adminConfig.objective,
-      planAction: adminConfig.planAction.substring(0, 500),
-      questionnaire: adminConfig.questionnaire.substring(0, 500),
-      additionalContext: adminConfig.additionalContext.substring(0, 300),
-      pdfNotes: adminConfig.pdfNotes.substring(0, 500)
-    };
-    const encoded = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(minConfig)))));
+    // Generate student ID from name
+    const sid = adminConfig.studentName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
     const baseUrl = window.location.origin + window.location.pathname;
-    const link = baseUrl + "#" + encoded;
+    const link = baseUrl + "?s=" + sid;
     setGeneratedLink(link);
     setLinkCopied(false);
-    setMessages([{ role: "assistant", content: `Profil mis à jour ! ✅\n\nConfiguré pour ${adminConfig.studentName} — niche "${adminConfig.niche}".\nModules 4-5-6 intégrés.\n\nComment je peux t'aider ?` }]);
+    // Generate JSON snippet for students.json on GitHub
+    const jsonSnippet = JSON.stringify({ [sid]: adminConfig }, null, 2);
+    setAdminConfig(prev => ({ ...prev, _jsonSnippet: jsonSnippet, _studentId: sid }));
+    setMessages([{ role: "assistant", content: `Profil configuré ! ✅\n\nLien pour ${adminConfig.studentName} : ${link}\n\n⚠️ Pour activer ce lien, ajoute le profil dans students.json sur GitHub (voir le panneau admin).` }]);
   }
 
   function copyLink() {
@@ -389,7 +400,19 @@ export default function App() {
         </div>
         <div style={styles.card}>
           <div ref={chatRef} style={styles.chatArea}>
-            {messages.length === 0 && (
+            {configError && (
+              <div style={{ textAlign: "center", padding: "40px 20px", animation: "fadeIn 0.6s ease" }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: "#FF6B6B", marginBottom: 8 }}>{configError}</div>
+              </div>
+            )}
+            {!configLoaded && !configError && (
+              <div style={{ textAlign: "center", padding: "40px 20px", animation: "fadeIn 0.6s ease" }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: TEXT, marginBottom: 8 }}>Chargement de ton profil...</div>
+              </div>
+            )}
+            {configLoaded && messages.length === 0 && !configError && (
               <div style={{ textAlign: "center", padding: "40px 20px", animation: "fadeIn 0.6s ease" }}>
                 <div style={{ fontSize: 40, marginBottom: 12 }}>✨</div>
                 <div style={{ fontSize: 16, fontWeight: 600, color: TEXT, marginBottom: 8 }}>Prêt à écrire des scripts qui claquent</div>
@@ -414,7 +437,7 @@ export default function App() {
         </div>
         <div style={{ textAlign: "center", padding: "20px 0 40px", fontSize: 11, color: TEXT_DIM }}>Powered by Square Motion × Creative Academy</div>
       </div>
-      {!window.location.hash.substring(1) && !new URLSearchParams(window.location.search).get("s") && <div style={styles.adminGear} onClick={() => setShowAdmin(true)} onMouseOver={e => { e.currentTarget.style.borderColor = PURPLE; }} onMouseOut={e => { e.currentTarget.style.borderColor = BORDER; }}>⚙️</div>}
+      {!studentId && <div style={styles.adminGear} onClick={() => setShowAdmin(true)} onMouseOver={e => { e.currentTarget.style.borderColor = PURPLE; }} onMouseOut={e => { e.currentTarget.style.borderColor = BORDER; }}>⚙️</div>}
       {showAdmin && (
         <div style={styles.adminOverlay} onClick={e => { if (e.target === e.currentTarget) setShowAdmin(false); }}>
           <div style={styles.adminPanel}>
@@ -452,15 +475,20 @@ export default function App() {
                 <button style={styles.saveBtn} onClick={saveAdminConfig}>💾 Sauvegarder & Générer le lien élève</button>
                 {generatedLink && (
                   <div style={{ marginTop: 20, padding: 16, background: BG_DARK, borderRadius: 12, border: `1px solid ${PURPLE}` }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: PURPLE_LIGHT, marginBottom: 12 }}>🔗 Lien personnalisé pour {adminConfig.studentName} :</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: PURPLE_LIGHT, marginBottom: 8 }}>🔗 Lien pour {adminConfig.studentName} :</div>
+                    <div style={{ fontSize: 13, color: TEXT, wordBreak: "break-all", marginBottom: 12, padding: "10px 14px", background: BG_DARK, borderRadius: 8, border: "1px solid " + PURPLE }}>{generatedLink}</div>
                     <button onClick={copyLink} style={{ ...styles.saveBtn, marginTop: 0, background: linkCopied ? "#2D8B4E" : `linear-gradient(135deg, ${PURPLE}, ${PURPLE_DARK})` }}>
-                      {linkCopied ? "✅ Lien copié !" : "📋 Copier le lien de " + adminConfig.studentName}
+                      {linkCopied ? "✅ Lien copié !" : "📋 Copier le lien"}
                     </button>
+                    {adminConfig._jsonSnippet && (
+                      <div style={{ marginTop: 16 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#FFD93D", marginBottom: 8 }}>📝 Étape suivante : ajoute ce profil dans students.json sur GitHub</div>
+                        <div style={{ fontSize: 11, color: TEXT_MUTED, marginBottom: 8, lineHeight: 1.5 }}>Va sur GitHub → students.json → crayon ✏️ → ajoute ce bloc dans le JSON → Commit</div>
+                        <textarea readOnly value={adminConfig._jsonSnippet} style={{ ...styles.adminTextarea, minHeight: 120, fontSize: 11, fontFamily: "monospace", color: "#4ECDC4" }} onClick={e => { e.target.select(); document.execCommand("copy"); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000); }} />
+                      </div>
+                    )}
                     <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 10, lineHeight: 1.5 }}>
-                      Envoie ce lien à {adminConfig.studentName} par WhatsApp, DM ou email. Son profil sera chargé automatiquement. L'élève ne verra pas le panneau admin ⚙️.
-                    </div>
-                    <div style={{ marginTop: 8, fontSize: 11, color: TEXT_DIM, lineHeight: 1.5 }}>
-                      💡 Astuce : les champs très longs (plan d'action, questionnaire) sont résumés dans le lien pour éviter qu'il soit trop long. Pour un profil complet, garde les textes concis.
+                      Le lien ne marchera qu'après avoir ajouté le profil dans students.json sur GitHub.
                     </div>
                   </div>
                 )}

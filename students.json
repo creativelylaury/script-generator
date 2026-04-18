@@ -1,0 +1,22 @@
+{
+  "aninia": {
+    "studentName": "Aninia",
+    "niche": "Créatrice UGC et creative strategist",
+    "instagramHandle": "@niiyaa_ugc",
+    "objective": "Avoir une visibilité importante sur les réseaux, créer une personal brand pour attirer des marques, développer une offre high ticket de creative strategist",
+    "planAction": "",
+    "questionnaire": "",
+    "additionalContext": "",
+    "pdfNotes": ""
+  },
+  "demo": {
+    "studentName": "Élève Demo",
+    "niche": "Exemple de niche",
+    "instagramHandle": "@demo",
+    "objective": "Objectif de démonstration",
+    "planAction": "",
+    "questionnaire": "",
+    "additionalContext": "",
+    "pdfNotes": ""
+  }
+}

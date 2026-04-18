@@ -236,29 +236,28 @@ const QUICK_ACTIONS = {
 };
 
 export default function App() {
-  // Check if config is in URL (student link)
-  const [isStudentMode] = useState(() => {
+  // Decode config from URL if present
+  const urlConfig = (() => {
     try {
-      const params = new URLSearchParams(window.location.search);
-      const encoded = params.get("config");
-      if (encoded) return true;
-    } catch {}
-    return false;
-  });
-
-  const [config, setConfig] = useState(() => {
-    try {
-      // Priority 1: URL parameter (student link)
       const params = new URLSearchParams(window.location.search);
       const encoded = params.get("config");
       if (encoded) {
-        const decoded = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(encoded)))));
-        // Save to localStorage so it persists on refresh
-        localStorage.setItem("sm_student_config_" + decoded.studentName, JSON.stringify(decoded));
-        return decoded;
+        return JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(encoded)))));
       }
-      // Priority 2: localStorage
-      const saved = localStorage.getItem("sm_student_config");
+    } catch (e) { console.error("URL config decode error:", e); }
+    return null;
+  })();
+
+  // Student mode = URL has config parameter (hide admin)
+  const [isStudentMode] = useState(!!urlConfig);
+
+  // Config priority: URL > localStorage (only when no URL param)
+  const [config, setConfig] = useState(() => {
+    // If URL has config, ALWAYS use it (ignore localStorage)
+    if (urlConfig) return urlConfig;
+    // No URL param = admin mode, load from localStorage
+    try {
+      const saved = localStorage.getItem("sm_admin_config");
       return saved ? JSON.parse(saved) : DEFAULT_CONFIG;
     } catch { return DEFAULT_CONFIG; }
   });
@@ -314,7 +313,7 @@ export default function App() {
 
   function saveAdminConfig() {
     setConfig(adminConfig);
-    try { localStorage.setItem("sm_student_config", JSON.stringify(adminConfig)); } catch {}
+    try { localStorage.setItem("sm_admin_config", JSON.stringify(adminConfig)); } catch {}
     // Generate shareable student link
     const encoded = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(adminConfig)))));
     const baseUrl = window.location.origin + window.location.pathname;

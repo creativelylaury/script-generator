@@ -236,27 +236,27 @@ const QUICK_ACTIONS = {
 };
 
 export default function App() {
-  // Decode config from URL if present
-  const urlConfig = (() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const encoded = params.get("config");
-      if (encoded) {
-        return JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(encoded)))));
-      }
-    } catch (e) { console.error("URL config decode error:", e); }
-    return null;
-  })();
+  // Check for student hash in URL
+  const [isStudentMode] = useState(() => window.location.hash.length > 1);
 
-  // Student mode = URL has config parameter (hide admin)
-  const [isStudentMode] = useState(!!urlConfig);
-
-  // Config priority: URL > localStorage (only when no URL param)
   const [config, setConfig] = useState(() => {
-    // If URL has config, ALWAYS use it (ignore localStorage)
-    if (urlConfig) return urlConfig;
-    // No URL param = admin mode, load from localStorage
     try {
+      // Priority 1: Hash fragment (student link) - not truncated by browsers
+      const hash = window.location.hash.substring(1);
+      if (hash) {
+        const decoded = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(hash)))));
+        // Cache in localStorage for this student so they don't need the full link again
+        localStorage.setItem("sm_student_" + decoded.studentName.toLowerCase().replace(/\s/g, ""), JSON.stringify(decoded));
+        return decoded;
+      }
+      // Priority 2: Check if there's a student param for cached profiles
+      const params = new URLSearchParams(window.location.search);
+      const sid = params.get("s");
+      if (sid) {
+        const cached = localStorage.getItem("sm_student_" + sid);
+        if (cached) return JSON.parse(cached);
+      }
+      // Priority 3: Admin localStorage
       const saved = localStorage.getItem("sm_admin_config");
       return saved ? JSON.parse(saved) : DEFAULT_CONFIG;
     } catch { return DEFAULT_CONFIG; }
@@ -314,10 +314,20 @@ export default function App() {
   function saveAdminConfig() {
     setConfig(adminConfig);
     try { localStorage.setItem("sm_admin_config", JSON.stringify(adminConfig)); } catch {}
-    // Generate shareable student link
-    const encoded = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(adminConfig)))));
+    // Generate shareable student link using hash fragment (never truncated by browsers/apps)
+    const minConfig = {
+      studentName: adminConfig.studentName,
+      niche: adminConfig.niche,
+      instagramHandle: adminConfig.instagramHandle,
+      objective: adminConfig.objective,
+      planAction: adminConfig.planAction.substring(0, 500),
+      questionnaire: adminConfig.questionnaire.substring(0, 500),
+      additionalContext: adminConfig.additionalContext.substring(0, 300),
+      pdfNotes: adminConfig.pdfNotes.substring(0, 500)
+    };
+    const encoded = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(minConfig)))));
     const baseUrl = window.location.origin + window.location.pathname;
-    const link = baseUrl + "?config=" + encoded;
+    const link = baseUrl + "#" + encoded;
     setGeneratedLink(link);
     setLinkCopied(false);
     setMessages([{ role: "assistant", content: `Profil mis à jour ! ✅\n\nConfiguré pour ${adminConfig.studentName} — niche "${adminConfig.niche}".\nModules 4-5-6 intégrés.\n\nComment je peux t'aider ?` }]);
@@ -404,7 +414,7 @@ export default function App() {
         </div>
         <div style={{ textAlign: "center", padding: "20px 0 40px", fontSize: 11, color: TEXT_DIM }}>Powered by Square Motion × Creative Academy</div>
       </div>
-      {!isStudentMode && <div style={styles.adminGear} onClick={() => setShowAdmin(true)} onMouseOver={e => { e.currentTarget.style.borderColor = PURPLE; }} onMouseOut={e => { e.currentTarget.style.borderColor = BORDER; }}>⚙️</div>}
+      {!window.location.hash.substring(1) && !new URLSearchParams(window.location.search).get("s") && <div style={styles.adminGear} onClick={() => setShowAdmin(true)} onMouseOver={e => { e.currentTarget.style.borderColor = PURPLE; }} onMouseOut={e => { e.currentTarget.style.borderColor = BORDER; }}>⚙️</div>}
       {showAdmin && (
         <div style={styles.adminOverlay} onClick={e => { if (e.target === e.currentTarget) setShowAdmin(false); }}>
           <div style={styles.adminPanel}>
@@ -442,13 +452,15 @@ export default function App() {
                 <button style={styles.saveBtn} onClick={saveAdminConfig}>💾 Sauvegarder & Générer le lien élève</button>
                 {generatedLink && (
                   <div style={{ marginTop: 20, padding: 16, background: BG_DARK, borderRadius: 12, border: `1px solid ${PURPLE}` }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: PURPLE_LIGHT, marginBottom: 8 }}>🔗 Lien personnalisé pour {adminConfig.studentName} :</div>
-                    <div style={{ fontSize: 11, color: TEXT_MUTED, wordBreak: "break-all", marginBottom: 12, lineHeight: 1.5, maxHeight: 60, overflow: "hidden" }}>{generatedLink.substring(0, 120)}...</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: PURPLE_LIGHT, marginBottom: 12 }}>🔗 Lien personnalisé pour {adminConfig.studentName} :</div>
                     <button onClick={copyLink} style={{ ...styles.saveBtn, marginTop: 0, background: linkCopied ? "#2D8B4E" : `linear-gradient(135deg, ${PURPLE}, ${PURPLE_DARK})` }}>
-                      {linkCopied ? "✅ Lien copié !" : "📋 Copier le lien"}
+                      {linkCopied ? "✅ Lien copié !" : "📋 Copier le lien de " + adminConfig.studentName}
                     </button>
                     <div style={{ fontSize: 11, color: TEXT_DIM, marginTop: 10, lineHeight: 1.5 }}>
-                      Envoie ce lien à {adminConfig.studentName}. Le profil sera pré-chargé automatiquement. L'élève ne verra pas le panneau admin.
+                      Envoie ce lien à {adminConfig.studentName} par WhatsApp, DM ou email. Son profil sera chargé automatiquement. L'élève ne verra pas le panneau admin ⚙️.
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: 11, color: TEXT_DIM, lineHeight: 1.5 }}>
+                      💡 Astuce : les champs très longs (plan d'action, questionnaire) sont résumés dans le lien pour éviter qu'il soit trop long. Pour un profil complet, garde les textes concis.
                     </div>
                   </div>
                 )}
